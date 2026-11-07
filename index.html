@@ -286,24 +286,44 @@ function vGate(){
   if(!cfgOK())return'<div class="card" style="margin-top:12vh"><h1>Falta configurar</h1><div class="mute">Abre el archivo config.js y escribe la URL y la clave publishable de tu proyecto de Supabase. Revisa también que se cargue la librería de Supabase (necesita internet).</div></div>';
   if(booting||loading)return'<div class="card" style="margin-top:20vh"><h1>Mi presupuesto</h1><div class="mute">Cargando tus datos…</div></div>';
   if(authMode==='recovery')return vRecovery();
+  if(SES&&authMode==='force')return vForce();
   if(SES){
     if(authMode==='migrate')return vMigrate();
     return'<div class="card" style="margin-top:12vh"><h1>Mi presupuesto</h1><div class="bad" style="margin-bottom:10px">'+esc(authErr||'No se pudieron cargar tus datos.')+'</div><div class="stack"><button onclick="retryLoad()">Reintentar</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div></div>';
   }
   return vAuth();
 }
+var adm={ced:'',mail:'',pass:''},admMsg='',admBusy=false;
+function isAdmin(){return !!(SES&&SES.user&&SES.user.app_metadata&&SES.user.app_metadata.role==='admin')}
+function admSync(){var a=$('ad_ced'),b=$('ad_mail'),c=$('ad_pass');if(a)adm.ced=a.value.trim();if(b)adm.mail=b.value.trim();if(c)adm.pass=c.value}
+function admGen(){admSync();var al='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789',o='',b=new Uint32Array(12);crypto.getRandomValues(b);for(var i=0;i<12;i++)o+=al[b[i]%al.length];adm.pass=o;render()}
+function adminCard(){
+  if(!isAdmin())return'';
+  return'<h2>Administración</h2><div class="card"><div class="mute" style="margin-bottom:8px">Crear usuario. Recibirá un correo con la clave temporal y deberá cambiarla al entrar.</div><div class="stack"><input id="ad_ced" type="text" inputmode="numeric" placeholder="Cédula" value="'+esc(adm.ced)+'"><input id="ad_mail" type="email" autocapitalize="none" autocorrect="off" placeholder="Correo del usuario" value="'+esc(adm.mail)+'"><div class="row"><input id="ad_pass" type="text" autocapitalize="none" autocorrect="off" placeholder="Clave inicial (mínimo 8)" value="'+esc(adm.pass)+'"><button class="ghost" onclick="admGen()">Generar</button></div><button onclick="admCreate()"'+(admBusy?' disabled':'')+'>'+(admBusy?'Creando…':'Crear usuario y enviar correo')+'</button></div>'+(admMsg?'<div style="margin-top:8px">'+esc(admMsg)+'</div>':'')+'</div>';
+}
+async function admCreate(){
+  admSync();admMsg='';
+  if(!/^[0-9]{5,12}$/.test(adm.ced)){admMsg='La cédula debe tener de 5 a 12 números.';render();return}
+  if(!/^\S+@\S+\.\S+$/.test(adm.mail)){admMsg='Escribe un correo válido.';render();return}
+  if(adm.pass.length<8){admMsg='La clave inicial debe tener al menos 8 caracteres.';render();return}
+  admBusy=true;render();
+  try{
+    var r=await sb.functions.invoke('create-user',{body:{cedula:adm.ced,email:adm.mail.toLowerCase(),password:adm.pass,appUrl:location.origin+location.pathname}});
+    if(r.error){var m='No se pudo crear la cuenta.';try{var j=await r.error.context.json();if(j&&j.error)m=j.error}catch(e){}admMsg=m}
+    else if(r.data&&r.data.ok){admMsg=r.data.emailSent?'Cuenta creada y correo enviado a '+adm.mail+'.':'Cuenta creada, pero el correo NO se pudo enviar. Entrega esta clave temporal al usuario por otro medio: '+adm.pass;adm={ced:'',mail:'',pass:''}}
+    else admMsg=(r.data&&r.data.error)||'Respuesta inesperada del servidor.';
+  }catch(e){admMsg='Sin conexión con el servidor.'}
+  admBusy=false;render();
+}
 function retryLoad(){loading=true;render();setTimeout(loadCloud,0)}
 function keepEmail(){var e=$('au_email');if(e)auEmail=e.value}
 function setMode(m){keepEmail();authMode=m;authErr='';authInfo='';render()}
 function vAuth(){
-  var m=authMode,h='<div class="card" style="margin-top:8vh"><h1>Mi presupuesto</h1>';
-  h+='<div class="seg"><button class="'+(m!=='signup'?'on':'')+'" onclick="setMode(\'login\')">Entrar</button><button class="'+(m==='signup'?'on':'')+'" onclick="setMode(\'signup\')">Crear cuenta</button></div>';
+  var m=authMode,h='<div class="card" style="margin-top:10vh"><h1>Mi presupuesto</h1><div class="mute" style="margin-bottom:10px">'+(m==='forgot'?'Escribe tu correo y te enviaremos un enlace para crear una clave nueva.':'Inicia sesión. Las cuentas las crea el administrador.')+'</div>';
   h+='<div class="stack"><input id="au_email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off" placeholder="Correo electrónico" value="'+esc(auEmail)+'">';
-  if(m!=='forgot')h+='<input id="au_pass" type="password" autocomplete="'+(m==='signup'?'new-password':'current-password')+'" placeholder="Clave'+(m==='signup'?' (mínimo 8 caracteres)':'')+'">';
-  if(m==='signup')h+='<input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave">';
-  h+='<button onclick="doAuth()">'+(m==='signup'?'Crear cuenta':m==='forgot'?'Enviar enlace':'Entrar')+'</button>';
-  if(m==='login')h+='<button class="ghost" onclick="setMode(\'forgot\')">Olvidé mi clave</button>';
-  if(m==='forgot')h+='<button class="ghost" onclick="setMode(\'login\')">Volver</button>';
+  if(m!=='forgot')h+='<input id="au_pass" type="password" autocomplete="current-password" placeholder="Clave">';
+  h+='<button onclick="doAuth()">'+(m==='forgot'?'Enviar enlace':'Entrar')+'</button>';
+  h+=m==='forgot'?'<button class="ghost" onclick="setMode(\'login\')">Volver</button>':'<button class="ghost" onclick="setMode(\'forgot\')">Olvidé mi clave</button>';
   h+='</div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+(authInfo?'<div class="ok" style="margin-top:8px">'+esc(authInfo)+'</div>':'')+'</div>';
   return h;
 }
@@ -312,6 +332,7 @@ function authMsg(e){
   if(m.indexOf('invalid login')>=0)return'Correo o clave incorrectos.';
   if(m.indexOf('not confirmed')>=0)return'Debes confirmar tu correo antes de entrar. Revisa tu bandeja.';
   if(m.indexOf('already registered')>=0)return'Ya existe una cuenta con ese correo. Intenta entrar.';
+  if(m.indexOf('different from the old')>=0)return'La clave nueva debe ser distinta de la temporal.';
   if(m.indexOf('rate limit')>=0)return'Demasiados intentos o correos enviados. Espera unos minutos.';
   if(m.indexOf('fetch')>=0||m.indexOf('network')>=0)return'No hay conexión con el servidor.';
   return'No se pudo completar la acción: '+(e&&e.message||'error desconocido');
@@ -322,13 +343,7 @@ async function doAuth(){
   authErr='';authInfo='';
   if(!/^\S+@\S+\.\S+$/.test(email)){authErr='Escribe un correo válido.';render();return}
   try{
-    if(authMode==='signup'){
-      if(pw.length<8){authErr='La clave debe tener al menos 8 caracteres.';render();return}
-      if(pw!==$('au_pass2').value){authErr='Las claves no coinciden.';render();return}
-      var r2=await sb.auth.signUp({email:email,password:pw,options:{emailRedirectTo:location.origin+location.pathname}});
-      if(r2.error)throw r2.error;
-      if(!r2.data.session){authInfo='Cuenta creada. Revisa tu correo y confirma tu cuenta para poder entrar.';authMode='login'}
-    }else if(authMode==='forgot'){
+    if(authMode==='forgot'){
       var r3=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
       if(r3.error)throw r3.error;
       authInfo='Si el correo existe, recibirás un enlace para crear una clave nueva.';authMode='login';
@@ -339,6 +354,17 @@ async function doAuth(){
   }catch(e){authErr=authMsg(e)}
   render();
 }
+function vForce(){
+  return'<div class="card" style="margin-top:10vh"><h1>Crea tu clave nueva</h1><div class="mute" style="margin-bottom:10px">Entraste con una clave temporal. Elige una clave personal para continuar.</div><div class="stack"><input id="au_pass" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave"><button onclick="doForce()">Guardar y entrar</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+'</div>';
+}
+async function doForce(){
+  var a=$('au_pass').value,b=$('au_pass2').value;
+  if(a.length<8){authErr='La clave debe tener al menos 8 caracteres.';render();return}
+  if(a!==b){authErr='Las claves no coinciden.';render();return}
+  var r=await sb.auth.updateUser({password:a,data:{must_change:false}});
+  if(r.error){authErr=authMsg(r.error);render();return}
+  authErr='';authMode='login';loading=true;render();setTimeout(loadCloud,0);
+}
 function vRecovery(){
   return'<div class="card" style="margin-top:10vh"><h1>Crea una clave nueva</h1><div class="stack"><input id="au_pass" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave"><button onclick="doRecover()">Guardar clave nueva</button></div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+'</div>';
 }
@@ -346,7 +372,7 @@ async function doRecover(){
   var a=$('au_pass').value,b=$('au_pass2').value;
   if(a.length<8){authErr='La clave debe tener al menos 8 caracteres.';render();return}
   if(a!==b){authErr='Las claves no coinciden.';render();return}
-  var r=await sb.auth.updateUser({password:a});
+  var r=await sb.auth.updateUser({password:a,data:{must_change:false}});
   if(r.error){authErr=authMsg(r.error);render();return}
   authErr='';authMode='login';try{location.hash=''}catch(e){}
   loading=true;render();setTimeout(loadCloud,0);
@@ -368,7 +394,7 @@ async function chPass(){
   var a=$('pc1').value,b=$('pc2').value;
   if(a.length<8){smsg='La clave debe tener al menos 8 caracteres.';render();return}
   if(a!==b){smsg='Las claves no coinciden.';render();return}
-  var r=await sb.auth.updateUser({password:a});
+  var r=await sb.auth.updateUser({password:a,data:{must_change:false}});
   smsg=r.error?authMsg(r.error):'Clave cambiada.';render();
 }
 (function boot(){
@@ -380,7 +406,8 @@ async function chPass(){
     if(ev==='PASSWORD_RECOVERY')authMode='recovery';
     if(ev==='SIGNED_OUT'){S=def();ver=0;dirty=false;ready=false;loading=false;legacy=null;booting=false;if(authMode!=='recovery')authMode='login';setTimeout(render,0);return}
     if(ev==='INITIAL_SESSION')booting=false;
-    if(session&&!ready&&!loading&&authMode!=='recovery'&&authMode!=='migrate'){loading=true;setTimeout(loadCloud,0)}
+    if(session&&session.user.user_metadata&&session.user.user_metadata.must_change&&authMode!=='recovery'){authMode='force';setTimeout(render,0);return}
+    if(session&&!ready&&!loading&&authMode!=='recovery'&&authMode!=='migrate'&&authMode!=='force'){loading=true;setTimeout(loadCloud,0)}
     else if(!ready)setTimeout(render,0);
   });
   window.addEventListener('online',function(){push()});
@@ -400,7 +427,7 @@ function vPerfil(){
   var opts=[['m','Mes actual'],['3','Últimos 3 meses'],['12','Últimos 12 meses'],['all','Todo el historial']];
   var h='<h1>Perfil</h1><div class="card"><div class="stack">'+f('name','Nombre completo')+f('email','Correo electrónico','email')+f('phone','Teléfono','tel')+f('doc','Documento de identidad')+f('job','Ocupación')+f('city','Ciudad y país')+f('goal','Meta de ahorro mensual','text','decimal')+'</div></div>';
   h+='<h2>Reportes</h2><div class="card"><div class="stack"><select onchange="repP=this.value">'+opts.map(function(o){return'<option value="'+o[0]+'"'+(repP===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select><div class="row"><button style="flex:1" onclick="repPdf()">Descargar PDF</button><button style="flex:1" onclick="repXls()">Descargar Excel</button></div></div>'+(rmsg?'<div class="mute" style="margin-top:8px">'+rmsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Los reportes incluyen tus datos de perfil, movimientos, créditos, proyección y recomendaciones.</div></div>';
-  h+='<h2>Cuenta</h2><div class="card"><div class="mute" style="margin-bottom:8px">Sesión iniciada como <b>'+esc(SES&&SES.user?SES.user.email:'')+'</b></div><div class="stack"><div class="mute">Cambiar clave</div><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chPass()">Cambiar clave</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Tus datos se guardan en la nube y solo tu cuenta puede verlos.</div></div>';
+  h+=adminCard();h+='<h2>Cuenta</h2><div class="card"><div class="mute" style="margin-bottom:8px">Sesión iniciada como <b>'+esc(SES&&SES.user?SES.user.email:'')+'</b></div><div class="stack"><div class="mute">Cambiar clave</div><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chPass()">Cambiar clave</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Tus datos se guardan en la nube y solo tu cuenta puede verlos.</div></div>';
   return h;
 }
 
