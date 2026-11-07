@@ -53,6 +53,25 @@ nav button.on{color:var(--acc);box-shadow:inset 0 2px 0 var(--acc)}
 table{width:100%;border-collapse:collapse;font-size:14px}
 td,th{padding:7px 4px;text-align:right;border-bottom:1px solid var(--line)}
 td:first-child,th:first-child{text-align:left}
+main>.row:first-child button{white-space:nowrap}
+@media (max-width:480px){.oks{display:none}}
+nav .brand,nav button.dsk{display:none}
+@media (min-width:900px){
+  body{padding-bottom:0}
+  nav{top:0;right:auto;bottom:0;width:220px;flex-direction:column;justify-content:flex-start;border-top:0;border-right:1px solid var(--line);padding:22px 0 0}
+  nav .brand{display:block;padding:2px 22px 18px;font-weight:700;font-size:18px}
+  nav button{flex:none;text-align:left;font-size:15px;min-height:46px;padding:0 22px}
+  nav button.dsk{display:block}
+  nav button.on{box-shadow:inset 3px 0 0 var(--acc);background:var(--bg)}
+  main:not(.gate){max-width:none;margin:0 0 0 220px;padding:26px max(32px,calc((100vw - 220px - 1080px)/2)) 40px;column-count:2;column-gap:24px}
+  main:not(.gate)>.card,main:not(.gate)>.item{break-inside:avoid}
+  main:not(.gate)>h1,main:not(.gate)>.seg,main:not(.gate)>.row,main:not(.gate)>.mute,main:not(.gate)>button{column-span:all}
+  main:not(.gate)>h2{break-after:avoid;margin-top:0;padding-top:4px}
+  main.v-admin,main.v-anal .nocols{column-count:1}
+  main.v-admin>*{max-width:520px}
+  h1{font-size:26px}
+  .mob{display:none}
+}
 </style>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -88,14 +107,16 @@ function go(t){tab=t;msg=smsg=rmsg='';render()}
 function mv(n){month=shift(month,n);render()}
 
 function render(){
-  if(!ready){$('nav').style.display='none';$('app').innerHTML=vGate();var pe=$('au_email');if(pe&&authMode!=='recovery')pe.focus();window.scrollTo(0,0);return}
-  $('nav').style.display='';
+  if(!ready){$('nav').style.display='none';$('app').className='gate';$('app').innerHTML=vGate();var pe=$('au_email');if(pe&&authMode!=='recovery')pe.focus();window.scrollTo(0,0);return}
+  $('nav').style.display='';$('app').className='v-'+tab;
   var tabs=[['resumen','Resumen'],['mov','Registro'],['pres','Presupuesto'],['proy','Proyección'],['anal','Análisis']];
-  $('nav').innerHTML=tabs.map(function(t){return'<button class="'+(tab===t[0]||(t[0]==='resumen'&&tab==='saldos')?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('');
-  $('app').innerHTML=topBar()+{resumen:vResumen,mov:vMov,pres:vPres,proy:vProy,anal:vAnal,perfil:vPerfil,saldos:vSaldos}[tab]();
+  var extra=[['perfil','Perfil']].concat(isAdmin()?[['admin','Usuarios']]:[]);
+  $('nav').innerHTML='<div class="brand">Mi presupuesto</div>'+tabs.map(function(t){return'<button class="'+(tab===t[0]||(t[0]==='resumen'&&tab==='saldos')?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('')+extra.map(function(t){return'<button class="dsk '+(tab===t[0]?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('');
+  $('app').innerHTML=topBar()+{resumen:vResumen,mov:vMov,pres:vPres,proy:vProy,anal:vAnal,perfil:vPerfil,saldos:vSaldos,admin:vAdmin}[tab]();
   window.scrollTo(0,0);
 }
-function monthBar(){return'<div class="row" style="margin-bottom:12px"><button class="ghost" onclick="mv(-1)" aria-label="Mes anterior">‹</button><b style="text-transform:capitalize">'+label(month)+'</b><button class="ghost" onclick="mv(1)" aria-label="Mes siguiente">›</button></div>'}
+function cap(t){return t.charAt(0).toUpperCase()+t.slice(1)}
+function monthBar(){return'<div class="row" style="margin-bottom:12px"><button class="ghost" onclick="mv(-1)" aria-label="Mes anterior">‹</button><b>'+cap(label(month))+'</b><button class="ghost" onclick="mv(1)" aria-label="Mes siguiente">›</button></div>'}
 
 function vResumen(){
   var tx=inMonth(month),inc=sum(tx.filter(function(t){return t.type==='in'})),out=sum(tx.filter(function(t){return t.type==='out'}));
@@ -111,12 +132,12 @@ function vResumen(){
 }
 
 function vMov(){
-  var h='<h1>Registro</h1><div class="card"><div class="seg"><button class="'+(txType==='out'?'on':'')+'" onclick="setType(\'out\')">Gasto</button><button class="'+(txType==='in'?'on':'')+'" onclick="setType(\'in\')">Ingreso</button></div><div class="stack">';
+  var h='<h1>Registro</h1>'+monthBar()+'<div class="card"><div class="seg"><button class="'+(txType==='out'?'on':'')+'" onclick="setType(\'out\')">Gasto</button><button class="'+(txType==='in'?'on':'')+'" onclick="setType(\'in\')">Ingreso</button></div><div class="stack">';
   h+='<input id="m_amt" type="text" inputmode="decimal" placeholder="Monto">';
   if(txType==='out')h+='<select id="m_cat">'+S.cats.map(function(c){return'<option>'+esc(c)+'</option>'}).join('')+'</select>';
   h+=accSel('m_acc',txType==='out'?'Pagar con':'Ingresa a');h+='<input id="m_date" type="date" value="'+today()+'"><input id="m_note" type="text" placeholder="Nota (opcional)"><button onclick="addTx()">Guardar '+(txType==='out'?'gasto':'ingreso')+'</button></div>';
   if(msg)h+='<div class="mute" style="margin-top:8px">'+msg+'</div>';
-  h+='</div>'+monthBar();
+  h+='</div>';
   var tx=inMonth(month).sort(function(a,b){return a.date<b.date?1:-1});
   h+='<div class="card">';
   if(!tx.length)h+='<div class="empty">Sin movimientos en este mes.</div>';
@@ -220,7 +241,8 @@ var MIGKEY='presupuesto-migrado-v1';
 function cacheKey(){return'presupuesto-cache-'+(SES&&SES.user?SES.user.id:'x')}
 function readCache(){try{var c=JSON.parse(localStorage.getItem(cacheKey()));return c&&c.data?c:null}catch(e){return null}}
 function writeCache(d){try{localStorage.setItem(cacheKey(),JSON.stringify({data:S,ver:ver,dirty:d}))}catch(e){}}
-function setSync(t){syncTxt=t;var e=$('sync');if(e)e.textContent=t}
+function okc(t){return /^(Sincronizado|Guardado en la nube)$/.test(t)?' oks':''}
+function setSync(t){syncTxt=t;var e=$('sync');if(e){e.textContent=t;e.className='mute'+okc(t)}}
 function cfgOK(){return !!(window.SUPABASE_URL&&window.SUPABASE_KEY&&String(window.SUPABASE_URL).indexOf('TU-PROYECTO')<0&&typeof supabase!=='undefined')}
 function readLegacy(){
   try{
@@ -263,6 +285,7 @@ async function conflict(){
 }
 async function loadCloud(){
   authErr='';
+  try{var gu=await sb.auth.getUser();if(gu&&gu.data&&gu.data.user&&SES)SES.user=gu.data.user}catch(e){}
   try{
     var r=await sb.from('user_data').select('data,version').eq('user_id',SES.user.id).maybeSingle();
     if(r.error)throw r.error;
@@ -285,6 +308,8 @@ async function loadCloud(){
 function vGate(){
   if(!cfgOK())return'<div class="card" style="margin-top:12vh"><h1>Falta configurar</h1><div class="mute">Abre el archivo config.js y escribe la URL y la clave publishable de tu proyecto de Supabase. Revisa también que se cargue la librería de Supabase (necesita internet).</div></div>';
   if(booting||loading)return'<div class="card" style="margin-top:20vh"><h1>Mi presupuesto</h1><div class="mute">Cargando tus datos…</div></div>';
+  if(verifying)return'<div class="card" style="margin-top:20vh"><h1>Mi presupuesto</h1><div class="mute">Activando tu cuenta…</div></div>';
+  if(authMode==='activate')return vActivate();
   if(authMode==='recovery')return vRecovery();
   if(SES&&authMode==='force')return vForce();
   if(SES){
@@ -293,27 +318,37 @@ function vGate(){
   }
   return vAuth();
 }
-var adm={ced:'',mail:'',pass:''},admMsg='',admBusy=false;
+var adm={ced:'',mail:'',mail2:''},admMsg='',admBusy=false,pendTok=null,verifying=false;
 function isAdmin(){return !!(SES&&SES.user&&SES.user.app_metadata&&SES.user.app_metadata.role==='admin')}
-function admSync(){var a=$('ad_ced'),b=$('ad_mail'),c=$('ad_pass');if(a)adm.ced=a.value.trim();if(b)adm.mail=b.value.trim();if(c)adm.pass=c.value}
-function admGen(){admSync();var al='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789',o='',b=new Uint32Array(12);crypto.getRandomValues(b);for(var i=0;i<12;i++)o+=al[b[i]%al.length];adm.pass=o;render()}
+function admSync(){var a=$('ad_ced'),b=$('ad_mail'),c=$('ad_mail2');if(a)adm.ced=a.value.trim();if(b)adm.mail=b.value.trim();if(c)adm.mail2=c.value.trim()}
 function adminCard(){
   if(!isAdmin())return'';
-  return'<h2>Administración</h2><div class="card"><div class="mute" style="margin-bottom:8px">Crear usuario. Recibirá un correo con la clave temporal y deberá cambiarla al entrar.</div><div class="stack"><input id="ad_ced" type="text" inputmode="numeric" placeholder="Cédula" value="'+esc(adm.ced)+'"><input id="ad_mail" type="email" autocapitalize="none" autocorrect="off" placeholder="Correo del usuario" value="'+esc(adm.mail)+'"><div class="row"><input id="ad_pass" type="text" autocapitalize="none" autocorrect="off" placeholder="Clave inicial (mínimo 8)" value="'+esc(adm.pass)+'"><button class="ghost" onclick="admGen()">Generar</button></div><button onclick="admCreate()"'+(admBusy?' disabled':'')+'>'+(admBusy?'Creando…':'Crear usuario y enviar correo')+'</button></div>'+(admMsg?'<div style="margin-top:8px">'+esc(admMsg)+'</div>':'')+'</div>';
+  return'<div class="card"><div class="mute" style="margin-bottom:8px">Crear usuario. Recibirá un correo con un enlace para activar su cuenta y elegir su propia clave.</div><div class="stack"><input id="ad_ced" type="text" inputmode="numeric" placeholder="Cédula" value="'+esc(adm.ced)+'"><input id="ad_mail" type="email" autocapitalize="none" autocorrect="off" placeholder="Correo del usuario" value="'+esc(adm.mail)+'"><button onclick="admCreate()"'+(admBusy?' disabled':'')+'>'+(admBusy?'Enviando…':'Crear usuario y enviar invitación')+'</button></div><div class="stack" style="margin-top:14px"><div class="mute">¿No le llegó o venció? Reenvía la invitación (solo para cuentas aún no activadas).</div><input id="ad_mail2" type="email" autocapitalize="none" autocorrect="off" placeholder="Correo del usuario" value="'+esc(adm.mail2)+'"><button class="ghost" onclick="admResend()"'+(admBusy?' disabled':'')+'>Reenviar invitación</button></div>'+(admMsg?'<div style="margin-top:10px;word-break:break-word">'+esc(admMsg)+'</div>':'')+'</div>';
 }
-async function admCreate(){
+function vAdmin(){return'<h1>Usuarios</h1>'+(isAdmin()?adminCard():'<div class="card"><div class="empty">Solo el administrador puede ver esta sección.</div></div>')}
+async function admCall(payload,who){
+  admBusy=true;admMsg='';render();
+  payload.appUrl=location.origin+location.pathname;
+  try{
+    var r=await sb.functions.invoke('create-user',{body:payload});
+    if(r.error){var m='No se pudo completar la acción.';try{var j=await r.error.context.json();if(j&&j.error)m=j.error}catch(e){}admMsg=m}
+    else if(r.data&&r.data.ok){
+      admMsg=r.data.emailSent?'Invitación enviada a '+who+'.':'El correo NO se pudo enviar. Entrega este enlace al usuario (de un solo uso): '+r.data.link;
+      if(payload.action==='create')adm={ced:'',mail:'',mail2:adm.mail2};else adm.mail2='';
+    }else admMsg=(r.data&&r.data.error)||'Respuesta inesperada del servidor.';
+  }catch(e){admMsg='Sin conexión con el servidor.'}
+  admBusy=false;render();
+}
+function admCreate(){
   admSync();admMsg='';
   if(!/^[0-9]{5,12}$/.test(adm.ced)){admMsg='La cédula debe tener de 5 a 12 números.';render();return}
   if(!/^\S+@\S+\.\S+$/.test(adm.mail)){admMsg='Escribe un correo válido.';render();return}
-  if(adm.pass.length<8){admMsg='La clave inicial debe tener al menos 8 caracteres.';render();return}
-  admBusy=true;render();
-  try{
-    var r=await sb.functions.invoke('create-user',{body:{cedula:adm.ced,email:adm.mail.toLowerCase(),password:adm.pass,appUrl:location.origin+location.pathname}});
-    if(r.error){var m='No se pudo crear la cuenta.';try{var j=await r.error.context.json();if(j&&j.error)m=j.error}catch(e){}admMsg=m}
-    else if(r.data&&r.data.ok){admMsg=r.data.emailSent?'Cuenta creada y correo enviado a '+adm.mail+'.':'Cuenta creada, pero el correo NO se pudo enviar. Entrega esta clave temporal al usuario por otro medio: '+adm.pass;adm={ced:'',mail:'',pass:''}}
-    else admMsg=(r.data&&r.data.error)||'Respuesta inesperada del servidor.';
-  }catch(e){admMsg='Sin conexión con el servidor.'}
-  admBusy=false;render();
+  admCall({action:'create',cedula:adm.ced,email:adm.mail.toLowerCase()},adm.mail.toLowerCase());
+}
+function admResend(){
+  admSync();admMsg='';
+  if(!/^\S+@\S+\.\S+$/.test(adm.mail2)){admMsg='Escribe el correo del usuario.';render();return}
+  admCall({action:'resend',email:adm.mail2.toLowerCase()},adm.mail2.toLowerCase());
 }
 function retryLoad(){loading=true;render();setTimeout(loadCloud,0)}
 function keepEmail(){var e=$('au_email');if(e)auEmail=e.value}
@@ -353,6 +388,17 @@ async function doAuth(){
     }
   }catch(e){authErr=authMsg(e)}
   render();
+}
+function vActivate(){
+  return'<div class="card" style="margin-top:12vh"><h1>Activa tu cuenta</h1><div class="mute" style="margin-bottom:10px">Te invitaron a Mi presupuesto. Toca el botón para activar tu cuenta y elegir tu clave.</div><div class="stack"><button onclick="doActivate()">Activar mi cuenta</button><button class="ghost" onclick="authMode=\'login\';authErr=\'\';render()">Ir a entrar</button></div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+'</div>';
+}
+async function doActivate(){
+  authErr='';authMode='recovery';verifying=true;render();
+  var r;
+  try{r=await sb.auth.verifyOtp({token_hash:pendTok,type:'recovery'})}catch(e){r={error:e}}
+  verifying=false;
+  if(r.error||!r.data||!r.data.session){authMode='activate';authErr='El enlace venció o ya se usó. Pídele al administrador que te envíe otro.';render();return}
+  SES=r.data.session;pendTok=null;render();
 }
 function vForce(){
   return'<div class="card" style="margin-top:10vh"><h1>Crea tu clave nueva</h1><div class="mute" style="margin-bottom:10px">Entraste con una clave temporal. Elige una clave personal para continuar.</div><div class="stack"><input id="au_pass" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave"><button onclick="doForce()">Guardar y entrar</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+'</div>';
@@ -398,16 +444,17 @@ async function chPass(){
   smsg=r.error?authMsg(r.error):'Clave cambiada.';render();
 }
 (function boot(){
+  try{var q=new URLSearchParams(location.search);if(q.get('token_hash')&&q.get('type')==='recovery'){pendTok=q.get('token_hash');authMode='activate';history.replaceState(null,'',location.pathname)}}catch(e){}
   if(location.hash.indexOf('type=recovery')>=0)authMode='recovery';
   if(!cfgOK()){booting=false;return}
   sb=supabase.createClient(window.SUPABASE_URL,window.SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   sb.auth.onAuthStateChange(function(ev,session){
     SES=session;
     if(ev==='PASSWORD_RECOVERY')authMode='recovery';
-    if(ev==='SIGNED_OUT'){S=def();ver=0;dirty=false;ready=false;loading=false;legacy=null;booting=false;if(authMode!=='recovery')authMode='login';setTimeout(render,0);return}
+    if(ev==='SIGNED_OUT'){S=def();ver=0;dirty=false;ready=false;loading=false;legacy=null;booting=false;if(authMode!=='recovery'&&authMode!=='activate')authMode='login';setTimeout(render,0);return}
     if(ev==='INITIAL_SESSION')booting=false;
-    if(session&&session.user.user_metadata&&session.user.user_metadata.must_change&&authMode!=='recovery'){authMode='force';setTimeout(render,0);return}
-    if(session&&!ready&&!loading&&authMode!=='recovery'&&authMode!=='migrate'&&authMode!=='force'){loading=true;setTimeout(loadCloud,0)}
+    if(session&&session.user.user_metadata&&session.user.user_metadata.must_change&&authMode!=='recovery'&&authMode!=='activate'){authMode='force';setTimeout(render,0);return}
+    if(session&&!ready&&!loading&&authMode!=='recovery'&&authMode!=='migrate'&&authMode!=='force'&&authMode!=='activate'){loading=true;setTimeout(loadCloud,0)}
     else if(!ready)setTimeout(render,0);
   });
   window.addEventListener('online',function(){push()});
@@ -418,7 +465,7 @@ async function chPass(){
 /* ===== Perfil ===== */
 function topBar(){
   var n=(S.prof.name||'').trim(),w=n?n.split(/\s+/):[],ini=w.slice(0,2).map(function(x){return x[0].toUpperCase()}).join('');
-  return'<div class="row" style="margin-bottom:6px"><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="logout()">Cerrar sesión</button><span class="mute" id="sync" style="font-size:12px;text-align:center;flex:1">'+esc(syncTxt)+'</span><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="go(\'perfil\')">'+(n?esc(ini+' · '+w[0]):'Perfil')+'</button></div>';
+  return'<div class="row" style="margin-bottom:6px"><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="logout()">Cerrar sesión</button><span class="mute'+okc(syncTxt)+'" id="sync" style="font-size:12px;text-align:center;flex:1">'+esc(syncTxt)+'</span>'+(isAdmin()?'<button class="ghost mob" style="min-height:36px;padding:4px 12px;margin-right:6px" onclick="go(\'admin\')">Usuarios</button>':'')+'<button class="ghost mob" style="min-height:36px;padding:4px 12px" onclick="go(\'perfil\')">'+(n?esc(w[0]):'Perfil')+'</button></div>';
 }
 function setProf(k,v){S.prof[k]=v.trim();save()}
 function vPerfil(){
@@ -427,7 +474,7 @@ function vPerfil(){
   var opts=[['m','Mes actual'],['3','Últimos 3 meses'],['12','Últimos 12 meses'],['all','Todo el historial']];
   var h='<h1>Perfil</h1><div class="card"><div class="stack">'+f('name','Nombre completo')+f('email','Correo electrónico','email')+f('phone','Teléfono','tel')+f('doc','Documento de identidad')+f('job','Ocupación')+f('city','Ciudad y país')+f('goal','Meta de ahorro mensual','text','decimal')+'</div></div>';
   h+='<h2>Reportes</h2><div class="card"><div class="stack"><select onchange="repP=this.value">'+opts.map(function(o){return'<option value="'+o[0]+'"'+(repP===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select><div class="row"><button style="flex:1" onclick="repPdf()">Descargar PDF</button><button style="flex:1" onclick="repXls()">Descargar Excel</button></div></div>'+(rmsg?'<div class="mute" style="margin-top:8px">'+rmsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Los reportes incluyen tus datos de perfil, movimientos, créditos, proyección y recomendaciones.</div></div>';
-  h+=adminCard();h+='<h2>Cuenta</h2><div class="card"><div class="mute" style="margin-bottom:8px">Sesión iniciada como <b>'+esc(SES&&SES.user?SES.user.email:'')+'</b></div><div class="stack"><div class="mute">Cambiar clave</div><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chPass()">Cambiar clave</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Tus datos se guardan en la nube y solo tu cuenta puede verlos.</div></div>';
+  h+='<h2>Cuenta</h2><div class="card"><div class="mute" style="margin-bottom:8px">Sesión iniciada como <b>'+esc(SES&&SES.user?SES.user.email:'')+'</b></div><div class="stack"><div class="mute">Cambiar clave</div><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chPass()">Cambiar clave</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Tus datos se guardan en la nube y solo tu cuenta puede verlos.</div></div>';
   return h;
 }
 
