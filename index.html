@@ -54,6 +54,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 td,th{padding:7px 4px;text-align:right;border-bottom:1px solid var(--line)}
 td:first-child,th:first-child{text-align:left}
 </style>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -64,7 +66,7 @@ td:first-child,th:first-child{text-align:left}
 var KEY='presupuesto-v1';
 function def(){return{cur:'$',start:0,cats:['Vivienda','Comida','Transporte','Salud','Ocio','Servicios','Otros'],bud:{},tx:[],rec:[],prof:{},accts:[{id:'cash',name:'Efectivo',kind:'cash',start:0}],trf:[]}}
 function load(){try{var r=localStorage.getItem(KEY);if(r)return norm(Object.assign(def(),JSON.parse(r)))}catch(e){}return def()}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+/* save() está definido en el bloque de Supabase */
 var S=load(),tab='resumen',txType='out',hor=6,msg='';
 var dr={kind:'out',dur:'none',cat:'',name:'',amt:'',n:'',end:''};
 var smsg='',rmsg='';
@@ -86,7 +88,7 @@ function go(t){tab=t;msg=smsg=rmsg='';render()}
 function mv(n){month=shift(month,n);render()}
 
 function render(){
-  if(!P||locked||needUser){$('nav').style.display='none';$('app').innerHTML=(P&&!needUser)?vLock():vSetup();var pe=$('lu')||$('su')||$('pin');if(pe)pe.focus();window.scrollTo(0,0);return}
+  if(!ready){$('nav').style.display='none';$('app').innerHTML=vGate();var pe=$('au_email');if(pe&&authMode!=='recovery')pe.focus();window.scrollTo(0,0);return}
   $('nav').style.display='';
   var tabs=[['resumen','Resumen'],['mov','Registro'],['pres','Presupuesto'],['proy','Proyección'],['anal','Análisis']];
   $('nav').innerHTML=tabs.map(function(t){return'<button class="'+(tab===t[0]||(t[0]==='resumen'&&tab==='saldos')?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('');
@@ -135,14 +137,14 @@ function vPres(){
   S.cats.forEach(function(c,i){h+='<div class="row"><label style="flex:1">'+esc(c)+'</label><input style="width:120px" type="text" inputmode="decimal" value="'+(S.bud[c]||'')+'" placeholder="0" onchange="setBud('+i+',this.value)"><button class="x" onclick="delCat('+i+')" aria-label="Quitar categoría">×</button></div>'});
   h+='</div><div class="row" style="margin-top:10px"><input id="newcat" type="text" placeholder="Nueva categoría"><button onclick="addCat()">Agregar</button></div></div>';
   h+='<h2>Ajustes</h2><div class="card"><div class="stack"><div class="row"><label style="flex:1">Símbolo de moneda</label><input style="width:120px" type="text" value="'+esc(S.cur)+'" onchange="S.cur=this.value||\'$\';save()"></div></div></div>';
-  h+='<h2>Respaldo</h2><div class="card"><div class="mute" style="margin-bottom:8px">Tus datos viven solo en este navegador. Exporta una copia de vez en cuando y guárdala en Notas.</div><textarea id="bk" placeholder="Aquí aparecerá la copia, o pega una para importar"></textarea><div class="row" style="margin-top:8px"><button class="ghost" style="flex:1" onclick="exp()">Exportar</button><button style="flex:1" onclick="imp()">Importar</button></div>'+(msg?'<div class="mute" style="margin-top:8px">'+msg+'</div>':'')+'</div>';
+  h+='<h2>Respaldo</h2><div class="card"><div class="mute" style="margin-bottom:8px">Tus datos se guardan en tu cuenta en la nube. Exporta una copia por seguridad, o pega aquí la copia de otra versión de la app para importarla.</div><textarea id="bk" placeholder="Aquí aparecerá la copia, o pega una para importar"></textarea><div class="row" style="margin-top:8px"><button class="ghost" style="flex:1" onclick="exp()">Exportar</button><button style="flex:1" onclick="imp()">Importar</button></div>'+(msg?'<div class="mute" style="margin-top:8px">'+msg+'</div>':'')+'</div>';
   return h;
 }
 function setBud(i,v){S.bud[S.cats[i]]=num(v);save()}
 function addCat(){var v=$('newcat').value.trim();if(v&&S.cats.indexOf(v)<0){S.cats.push(v);save();render()}}
 function delCat(i){if(confirm('¿Quitar la categoría '+S.cats[i]+'? Los gastos ya registrados se conservan.')){delete S.bud[S.cats[i]];S.cats.splice(i,1);save();render()}}
 function exp(){$('bk').value=JSON.stringify(S);$('bk').select();try{document.execCommand('copy');}catch(e){}}
-function imp(){try{var o=JSON.parse($('bk').value);if(!o||!Array.isArray(o.tx))throw 0;S=norm(Object.assign(def(),o));save();msg='Importado.';render()}catch(e){msg='No se pudo leer la copia. Revisa que esté completa.';render()}}
+function imp(){try{var o=JSON.parse($('bk').value);if(!o||!Array.isArray(o.tx))throw 0;if((S.tx.length||S.rec.length)&&!confirm('Esto reemplazará los datos actuales de tu cuenta con la copia pegada. ¿Continuar?'))return;S=norm(Object.assign(def(),o));save();msg='Importado.';render()}catch(e){msg='No se pudo leer la copia. Revisa que esté completa.';render()}}
 
 function vProy(){
   var b0=total()-pendTotal(),net=netAt(1);
@@ -210,59 +212,186 @@ function avgRec(){
   S.rec=S.rec.filter(function(r){return r.name!=='Gasto promedio (3 meses)'});
   S.rec.push({id:Date.now(),name:'Gasto promedio (3 meses)',type:'out',amount:Math.round(t/3)});save();msg='';render();
 }
-/* ===== Clave de acceso ===== */
-var PKEY='presupuesto-pin-v1';
-function loadPin(){try{var r=localStorage.getItem(PKEY);if(r)return JSON.parse(r)}catch(e){}return null}
-var P=loadPin(),locked=!!P,pinErr='',fails=0,until=0,fgt=false,hiddenAt=0,repP='m',sampleFn=null,dlFn=null;
-async function hashPin(pin,salt){var t=salt+':'+pin;try{var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0')}).join('')}catch(e){var h=5381;for(var i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return'f'+h}}
-async function saveCred(u,pw){var salt=Math.random().toString(36).slice(2)+Date.now().toString(36);P={user:u,salt:salt,hash:await hashPin(u+':'+pw,salt)};try{localStorage.setItem(PKEY,JSON.stringify(P))}catch(e){}}
-var needUser=false;
-function vLock(){
-  var h='<div class="card" style="margin-top:12vh"><h1>Mi presupuesto</h1>';
-  if(fgt)return h+'<div style="margin-bottom:12px">Si no recuerdas tu usuario o tu clave, la única forma de volver a entrar es borrar todos los datos de esta app en este dispositivo. Si tienes una copia exportada, podrás importarla después.</div><div class="stack"><button style="background:var(--bad);color:#fff" onclick="wipe()">Borrar todo y empezar de nuevo</button><button class="ghost" onclick="fgt=false;render()">Cancelar</button></div></div>';
-  return h+'<div class="mute" style="margin-bottom:10px">'+(P.user?'Inicia sesión para entrar.':'Escribe tu clave actual para continuar.')+'</div><div class="stack">'+(P.user?'<input id="lu" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" maxlength="30" placeholder="Usuario">':'')+'<input id="pin" type="password" autocomplete="current-password" placeholder="Clave"><button onclick="unlock()">Entrar</button><button class="ghost" onclick="fgt=true;pinErr=\'\';render()">Olvidé mi usuario o clave</button></div>'+(pinErr?'<div class="bad" style="margin-top:8px">'+pinErr+'</div>':'')+'</div>';
+/* ===== Supabase: cuenta y sincronización ===== */
+var repP='m',sampleFn=null,dlFn=null;
+var sb=null,SES=null,ready=false,loading=false,booting=true,authMode='login',authErr='',authInfo='',auEmail='';
+var ver=0,dirty=false,pushing=false,pushTimer=null,legacy=null,syncTxt='';
+var MIGKEY='presupuesto-migrado-v1';
+function cacheKey(){return'presupuesto-cache-'+(SES&&SES.user?SES.user.id:'x')}
+function readCache(){try{var c=JSON.parse(localStorage.getItem(cacheKey()));return c&&c.data?c:null}catch(e){return null}}
+function writeCache(d){try{localStorage.setItem(cacheKey(),JSON.stringify({data:S,ver:ver,dirty:d}))}catch(e){}}
+function setSync(t){syncTxt=t;var e=$('sync');if(e)e.textContent=t}
+function cfgOK(){return !!(window.SUPABASE_URL&&window.SUPABASE_KEY&&String(window.SUPABASE_URL).indexOf('TU-PROYECTO')<0&&typeof supabase!=='undefined')}
+function readLegacy(){
+  try{
+    if(localStorage.getItem(MIGKEY))return null;
+    var r=localStorage.getItem(KEY);if(!r)return null;
+    var o=norm(Object.assign(def(),JSON.parse(r)));
+    if(JSON.stringify(o)!==JSON.stringify(norm(def())))return o;
+  }catch(e){}
+  return null;
 }
-function vSetup(){
-  return'<div class="card" style="margin-top:8vh"><h1>'+(needUser?'Crea tu usuario':'Crea tu acceso')+'</h1><div class="mute" style="margin-bottom:10px">'+(needUser?'Ahora el acceso usa usuario y clave. Elige los nuevos datos.':'Elige un usuario y una clave de al menos 6 caracteres. Se te pedirán cada vez que abras la app.')+'</div><div class="stack"><input id="su" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" maxlength="30" placeholder="Usuario"><input id="pin1" type="password" autocomplete="new-password" placeholder="Clave (mínimo 6 caracteres)"><input id="pin2" type="password" autocomplete="new-password" placeholder="Repite la clave"><button onclick="setPin()">Guardar</button></div>'+(pinErr?'<div class="bad" style="margin-top:8px">'+pinErr+'</div>':'')+'</div>';
+function save(){
+  writeCache(true);dirty=true;setSync('Guardando…');
+  clearTimeout(pushTimer);pushTimer=setTimeout(push,500);
 }
-var UREG=/^[\w.@-]{3,30}$/;
-var UMSG='El usuario debe tener de 3 a 30 caracteres: letras, números, punto, guion, guion bajo o @.';
-async function setPin(){
-  var u=$('su').value.trim().toLowerCase(),a=$('pin1').value,b=$('pin2').value;
-  if(!UREG.test(u)){pinErr=UMSG;render();return}
-  if(a.length<6){pinErr='La clave debe tener al menos 6 caracteres.';render();return}
-  if(a!==b){pinErr='Las claves no coinciden.';render();return}
-  await saveCred(u,a);needUser=false;locked=false;pinErr='';tab='resumen';render();
+async function push(){
+  if(!sb||!SES||!ready||!dirty)return;
+  if(pushing){clearTimeout(pushTimer);pushTimer=setTimeout(push,700);return}
+  pushing=true;
+  var snap=JSON.parse(JSON.stringify(S)),uid=SES.user.id,res;
+  try{
+    if(ver===0)res=await sb.from('user_data').insert({user_id:uid,data:snap,version:1}).select('version');
+    else res=await sb.from('user_data').update({data:snap,version:ver+1}).eq('user_id',uid).eq('version',ver).select('version');
+    if(res.error){
+      if(res.error.code==='23505'){await conflict();return}
+      throw res.error;
+    }
+    if(!res.data||!res.data.length){await conflict();return}
+    ver=res.data[0].version;
+    if(JSON.stringify(S)===JSON.stringify(snap)){dirty=false;writeCache(false);setSync('Guardado en la nube')}
+    else{clearTimeout(pushTimer);pushTimer=setTimeout(push,100)}
+  }catch(e){setSync('Sin conexión: cambios pendientes')}
+  finally{pushing=false}
 }
-async function unlock(){
-  var now=Date.now();
-  if(now<until){pinErr='Demasiados intentos. Espera '+Math.ceil((until-now)/1000)+' s.';render();return}
-  var pw=$('pin').value,ok=false;
-  if(P.user){var u=($('lu').value||'').trim().toLowerCase();ok=u===P.user&&(await hashPin(u+':'+pw,P.salt))===P.hash}
-  else ok=(await hashPin(pw,P.salt))===P.hash;
-  if(ok){fails=0;pinErr='';if(P.user)locked=false;else{locked=false;needUser=true}tab='resumen';render();return}
-  fails++;
-  if(fails>=5){until=Date.now()+30000;fails=0;pinErr='Datos incorrectos. Espera 30 s para intentar de nuevo.'}else pinErr='Usuario o clave incorrectos.';
+async function conflict(){
+  var r=await sb.from('user_data').select('data,version').eq('user_id',SES.user.id).maybeSingle();
+  if(r.data){
+    S=norm(Object.assign(def(),r.data.data));ver=r.data.version;dirty=false;writeCache(false);
+    setSync('Se actualizó desde otro dispositivo: revisa tu último cambio');render();
+  }else{ver=0;pushing=false;await push()}
+}
+async function loadCloud(){
+  authErr='';
+  try{
+    var r=await sb.from('user_data').select('data,version').eq('user_id',SES.user.id).maybeSingle();
+    if(r.error)throw r.error;
+    if(r.data){
+      var c=readCache();
+      if(c&&c.dirty&&c.ver===r.data.version){S=norm(Object.assign(def(),c.data));ver=c.ver;ready=true;dirty=true;setSync('Enviando cambios pendientes…');push()}
+      else{S=norm(Object.assign(def(),r.data.data));ver=r.data.version;dirty=false;ready=true;setSync('Sincronizado')}
+    }else{
+      legacy=readLegacy();
+      if(legacy)authMode='migrate';
+      else{S=def();ver=0;ready=true;dirty=true;await push()}
+    }
+  }catch(e){
+    var c2=readCache();
+    if(c2){S=norm(Object.assign(def(),c2.data));ver=c2.ver||0;dirty=!!c2.dirty;ready=true;setSync('Sin conexión: mostrando tu copia local')}
+    else authErr='No se pudo conectar con la nube. Revisa tu internet e intenta de nuevo.';
+  }
+  loading=false;render();
+}
+function vGate(){
+  if(!cfgOK())return'<div class="card" style="margin-top:12vh"><h1>Falta configurar</h1><div class="mute">Abre el archivo config.js y escribe la URL y la clave publishable de tu proyecto de Supabase. Revisa también que se cargue la librería de Supabase (necesita internet).</div></div>';
+  if(booting||loading)return'<div class="card" style="margin-top:20vh"><h1>Mi presupuesto</h1><div class="mute">Cargando tus datos…</div></div>';
+  if(authMode==='recovery')return vRecovery();
+  if(SES){
+    if(authMode==='migrate')return vMigrate();
+    return'<div class="card" style="margin-top:12vh"><h1>Mi presupuesto</h1><div class="bad" style="margin-bottom:10px">'+esc(authErr||'No se pudieron cargar tus datos.')+'</div><div class="stack"><button onclick="retryLoad()">Reintentar</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div></div>';
+  }
+  return vAuth();
+}
+function retryLoad(){loading=true;render();setTimeout(loadCloud,0)}
+function keepEmail(){var e=$('au_email');if(e)auEmail=e.value}
+function setMode(m){keepEmail();authMode=m;authErr='';authInfo='';render()}
+function vAuth(){
+  var m=authMode,h='<div class="card" style="margin-top:8vh"><h1>Mi presupuesto</h1>';
+  h+='<div class="seg"><button class="'+(m!=='signup'?'on':'')+'" onclick="setMode(\'login\')">Entrar</button><button class="'+(m==='signup'?'on':'')+'" onclick="setMode(\'signup\')">Crear cuenta</button></div>';
+  h+='<div class="stack"><input id="au_email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off" placeholder="Correo electrónico" value="'+esc(auEmail)+'">';
+  if(m!=='forgot')h+='<input id="au_pass" type="password" autocomplete="'+(m==='signup'?'new-password':'current-password')+'" placeholder="Clave'+(m==='signup'?' (mínimo 8 caracteres)':'')+'">';
+  if(m==='signup')h+='<input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave">';
+  h+='<button onclick="doAuth()">'+(m==='signup'?'Crear cuenta':m==='forgot'?'Enviar enlace':'Entrar')+'</button>';
+  if(m==='login')h+='<button class="ghost" onclick="setMode(\'forgot\')">Olvidé mi clave</button>';
+  if(m==='forgot')h+='<button class="ghost" onclick="setMode(\'login\')">Volver</button>';
+  h+='</div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+(authInfo?'<div class="ok" style="margin-top:8px">'+esc(authInfo)+'</div>':'')+'</div>';
+  return h;
+}
+function authMsg(e){
+  var m=(e&&e.message||'').toLowerCase();
+  if(m.indexOf('invalid login')>=0)return'Correo o clave incorrectos.';
+  if(m.indexOf('not confirmed')>=0)return'Debes confirmar tu correo antes de entrar. Revisa tu bandeja.';
+  if(m.indexOf('already registered')>=0)return'Ya existe una cuenta con ese correo. Intenta entrar.';
+  if(m.indexOf('rate limit')>=0)return'Demasiados intentos o correos enviados. Espera unos minutos.';
+  if(m.indexOf('fetch')>=0||m.indexOf('network')>=0)return'No hay conexión con el servidor.';
+  return'No se pudo completar la acción: '+(e&&e.message||'error desconocido');
+}
+async function doAuth(){
+  keepEmail();
+  var email=auEmail.trim(),pw=$('au_pass')?$('au_pass').value:'';
+  authErr='';authInfo='';
+  if(!/^\S+@\S+\.\S+$/.test(email)){authErr='Escribe un correo válido.';render();return}
+  try{
+    if(authMode==='signup'){
+      if(pw.length<8){authErr='La clave debe tener al menos 8 caracteres.';render();return}
+      if(pw!==$('au_pass2').value){authErr='Las claves no coinciden.';render();return}
+      var r2=await sb.auth.signUp({email:email,password:pw,options:{emailRedirectTo:location.origin+location.pathname}});
+      if(r2.error)throw r2.error;
+      if(!r2.data.session){authInfo='Cuenta creada. Revisa tu correo y confirma tu cuenta para poder entrar.';authMode='login'}
+    }else if(authMode==='forgot'){
+      var r3=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+      if(r3.error)throw r3.error;
+      authInfo='Si el correo existe, recibirás un enlace para crear una clave nueva.';authMode='login';
+    }else{
+      var r=await sb.auth.signInWithPassword({email:email,password:pw});
+      if(r.error)throw r.error;
+    }
+  }catch(e){authErr=authMsg(e)}
   render();
 }
-function wipe(){try{localStorage.removeItem(KEY);localStorage.removeItem(PKEY)}catch(e){}S=def();P=null;locked=false;fgt=false;pinErr='';tab='resumen';render()}
-function lockNow(){locked=true;pinErr='';render()}
-async function chCred(){
-  var o=$('pc0').value,nu=$('pcu').value.trim().toLowerCase()||P.user,n1=$('pc1').value,n2=$('pc2').value;
-  if((await hashPin(P.user+':'+o,P.salt))!==P.hash){smsg='La clave actual no es correcta.';render();return}
-  if(!UREG.test(nu)){smsg=UMSG;render();return}
-  if(n1||n2){if(n1.length<6){smsg='La clave nueva debe tener al menos 6 caracteres.';render();return}if(n1!==n2){smsg='Las claves nuevas no coinciden.';render();return}}
-  await saveCred(nu,n1||o);smsg='Datos de acceso actualizados.';render();
+function vRecovery(){
+  return'<div class="card" style="margin-top:10vh"><h1>Crea una clave nueva</h1><div class="stack"><input id="au_pass" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="au_pass2" type="password" autocomplete="new-password" placeholder="Repite la clave"><button onclick="doRecover()">Guardar clave nueva</button></div>'+(authErr?'<div class="bad" style="margin-top:8px">'+esc(authErr)+'</div>':'')+'</div>';
 }
-document.addEventListener('visibilitychange',function(){
-  if(document.hidden)hiddenAt=Date.now();
-  else if(P&&!locked&&hiddenAt&&Date.now()-hiddenAt>60000){locked=true;render()}
-});
+async function doRecover(){
+  var a=$('au_pass').value,b=$('au_pass2').value;
+  if(a.length<8){authErr='La clave debe tener al menos 8 caracteres.';render();return}
+  if(a!==b){authErr='Las claves no coinciden.';render();return}
+  var r=await sb.auth.updateUser({password:a});
+  if(r.error){authErr=authMsg(r.error);render();return}
+  authErr='';authMode='login';try{location.hash=''}catch(e){}
+  loading=true;render();setTimeout(loadCloud,0);
+}
+function vMigrate(){
+  var n=legacy.tx.length,a=legacy.accts.length;
+  return'<div class="card" style="margin-top:8vh"><h1>Encontré datos en este dispositivo</h1><div class="mute" style="margin-bottom:12px">Hay '+n+' movimientos y '+a+(a===1?' cuenta':' cuentas')+' guardados en este teléfono o navegador. ¿Quieres subirlos a tu cuenta?</div><div class="stack"><button onclick="migUp()">Subir mis datos a mi cuenta</button><button class="ghost" onclick="migSkip()">Empezar con una cuenta vacía</button></div><div class="mute" style="margin-top:10px">Los datos de este dispositivo no se borran en ninguno de los dos casos.</div></div>';
+}
+async function migUp(){S=legacy;ver=0;ready=true;dirty=true;try{localStorage.setItem(MIGKEY,'1')}catch(e){}authMode='login';render();await push()}
+async function migSkip(){S=def();ver=0;ready=true;dirty=true;try{localStorage.setItem(MIGKEY,'1')}catch(e){}authMode='login';render();await push()}
+async function logout(){
+  var ck=cacheKey();
+  try{await push()}catch(e){}
+  try{await sb.auth.signOut()}catch(e){}
+  if(!dirty){try{localStorage.removeItem(ck)}catch(e){}}
+}
+function lockNow(){logout()}
+async function chPass(){
+  var a=$('pc1').value,b=$('pc2').value;
+  if(a.length<8){smsg='La clave debe tener al menos 8 caracteres.';render();return}
+  if(a!==b){smsg='Las claves no coinciden.';render();return}
+  var r=await sb.auth.updateUser({password:a});
+  smsg=r.error?authMsg(r.error):'Clave cambiada.';render();
+}
+(function boot(){
+  if(location.hash.indexOf('type=recovery')>=0)authMode='recovery';
+  if(!cfgOK()){booting=false;return}
+  sb=supabase.createClient(window.SUPABASE_URL,window.SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  sb.auth.onAuthStateChange(function(ev,session){
+    SES=session;
+    if(ev==='PASSWORD_RECOVERY')authMode='recovery';
+    if(ev==='SIGNED_OUT'){S=def();ver=0;dirty=false;ready=false;loading=false;legacy=null;booting=false;if(authMode!=='recovery')authMode='login';setTimeout(render,0);return}
+    if(ev==='INITIAL_SESSION')booting=false;
+    if(session&&!ready&&!loading&&authMode!=='recovery'&&authMode!=='migrate'){loading=true;setTimeout(loadCloud,0)}
+    else if(!ready)setTimeout(render,0);
+  });
+  window.addEventListener('online',function(){push()});
+  document.addEventListener('visibilitychange',function(){if(!document.hidden&&dirty)push()});
+  setTimeout(function(){if(booting){booting=false;render()}},6000);
+})();
 
 /* ===== Perfil ===== */
 function topBar(){
   var n=(S.prof.name||'').trim(),w=n?n.split(/\s+/):[],ini=w.slice(0,2).map(function(x){return x[0].toUpperCase()}).join('');
-  return'<div class="row" style="margin-bottom:6px"><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="lockNow()">Cerrar sesión</button><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="go(\'perfil\')">'+(n?esc(ini+' · '+w[0]):'Perfil')+'</button></div>';
+  return'<div class="row" style="margin-bottom:6px"><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="logout()">Cerrar sesión</button><span class="mute" id="sync" style="font-size:12px;text-align:center;flex:1">'+esc(syncTxt)+'</span><button class="ghost" style="min-height:36px;padding:4px 12px" onclick="go(\'perfil\')">'+(n?esc(ini+' · '+w[0]):'Perfil')+'</button></div>';
 }
 function setProf(k,v){S.prof[k]=v.trim();save()}
 function vPerfil(){
@@ -271,7 +400,7 @@ function vPerfil(){
   var opts=[['m','Mes actual'],['3','Últimos 3 meses'],['12','Últimos 12 meses'],['all','Todo el historial']];
   var h='<h1>Perfil</h1><div class="card"><div class="stack">'+f('name','Nombre completo')+f('email','Correo electrónico','email')+f('phone','Teléfono','tel')+f('doc','Documento de identidad')+f('job','Ocupación')+f('city','Ciudad y país')+f('goal','Meta de ahorro mensual','text','decimal')+'</div></div>';
   h+='<h2>Reportes</h2><div class="card"><div class="stack"><select onchange="repP=this.value">'+opts.map(function(o){return'<option value="'+o[0]+'"'+(repP===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select><div class="row"><button style="flex:1" onclick="repPdf()">Descargar PDF</button><button style="flex:1" onclick="repXls()">Descargar Excel</button></div></div>'+(rmsg?'<div class="mute" style="margin-top:8px">'+rmsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Los reportes incluyen tus datos de perfil, movimientos, créditos, proyección y recomendaciones.</div></div>';
-  h+='<h2>Seguridad</h2><div class="card"><div class="mute" style="margin-bottom:8px">Usuario actual: <b>'+esc(P.user||'')+'</b></div><div class="stack"><div class="mute">Cambiar usuario o clave</div><input id="pc0" type="password" autocomplete="current-password" placeholder="Clave actual"><input id="pcu" type="text" autocapitalize="none" autocorrect="off" maxlength="30" value="'+esc(P.user||'')+'" placeholder="Usuario"><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (déjala vacía para conservar la actual)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chCred()">Guardar cambios</button><button class="ghost" onclick="lockNow()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">El acceso protege la app en este dispositivo y se pide de nuevo tras un minuto fuera de la app. Los datos guardados no están cifrados.</div></div>';
+  h+='<h2>Cuenta</h2><div class="card"><div class="mute" style="margin-bottom:8px">Sesión iniciada como <b>'+esc(SES&&SES.user?SES.user.email:'')+'</b></div><div class="stack"><div class="mute">Cambiar clave</div><input id="pc1" type="password" autocomplete="new-password" placeholder="Clave nueva (mínimo 8 caracteres)"><input id="pc2" type="password" autocomplete="new-password" placeholder="Repite la clave nueva"><button onclick="chPass()">Cambiar clave</button><button class="ghost" onclick="logout()">Cerrar sesión</button></div>'+(smsg?'<div class="mute" style="margin-top:8px">'+smsg+'</div>':'')+'<div class="mute" style="margin-top:8px">Tus datos se guardan en la nube y solo tu cuenta puede verlos.</div></div>';
   return h;
 }
 
@@ -386,10 +515,9 @@ function askAI(){
   b.textContent='Analizando...';
   sampleFn('Eres un asesor de finanzas personales. Con estos datos de un usuario escribe en español un diagnóstico breve y 5 recomendaciones concretas y priorizadas, en texto plano sin markdown ni tablas, máximo 220 palabras. Cierra con una línea que aclare que es orientación general. Datos: '+JSON.stringify(data),{onText:function(o){b.textContent=o.text}}).catch(function(e){b.textContent=e&&e.code==='not_granted'?'Permiso denegado. Puedes volver a intentarlo.':'No se pudo obtener el análisis ahora.'});
 }
-function rr(){if(P&&!locked&&(tab==='anal'||tab==='perfil'))render()}
+function rr(){if(ready&&(tab==='anal'||tab==='perfil'))render()}
 try{
   if('serviceWorker' in navigator&&/^https?:/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(function(){});
-  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(function(){});
 }catch(e){}
 if(!window.claude){
   dlFn={save:function(o){return new Promise(function(res,rej){
