@@ -1,5 +1,5 @@
 // Service worker: abre la app sin conexión. No intercepta las llamadas a Supabase.
-var V = 'presupuesto-sb-v2';
+var V = 'presupuesto-sb-v3';
 var SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 var CDN = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
 
