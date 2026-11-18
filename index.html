@@ -533,78 +533,86 @@ function repPdf(){
 
 /* ===== Análisis financiero ===== */
 function analyze(f){
-  var c=cur(),ms=[1,2,3].map(function(n){return shift(c,-n)}).filter(function(m){return inMonth(m).length});
-  if(!ms.length)ms=[c];
-  var all=[];ms.forEach(function(m){all=all.concat(inMonth(m))});
-  if(!all.length&&!S.rec.length)return{empty:true};
-  var n=ms.length,inc=sum(all.filter(function(t){return t.type==='in'}))/n,exp=sum(all.filter(function(t){return t.type==='out'}))/n;
-  if(!inc)inc=sum(S.rec.filter(function(r){return r.type==='in'&&active(r,c)}));
-  var sav=inc-exp,rate=inc>0?sav/inc:null;
+  var c=cur(),now=new Date(),day=now.getDate(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),fr=day/dim,left=dim-day+1;
+  function isIn(t){return t.type==='in'}function isOut(t){return t.type==='out'}
+  var mt=inMonth(c),hm=[1,2,3].map(function(n){return shift(c,-n)}).filter(function(m){return inMonth(m).length}),hn=hm.length,hAll=[];
+  hm.forEach(function(m){hAll=hAll.concat(inMonth(m))});
+  if(!mt.length&&!hn&&!S.rec.length)return{empty:true};
+  var live=mt.length>0,incNow=sum(mt.filter(isIn)),expNow=sum(mt.filter(isOut)),pend=pendTotal();
+  var hInc=hn?sum(hAll.filter(isIn))/hn:0,hExp=hn?sum(hAll.filter(isOut))/hn:0;
+  var hCats=byCat(hAll).map(function(r){return[r[0],r[1]/hn]}),hAvg={};hCats.forEach(function(r){hAvg[r[0]]=r[1]});
+  var recInc=sum(S.rec.filter(function(r){return r.type==='in'&&active(r,c)}));
+  var inc=live?(Math.max(incNow,recInc)||hInc):(hInc||recInc);
+  var projExp=live?(expNow>0?(day>=5?expNow/fr:Math.max(expNow,hExp)):0):hExp;
+  var exp=live?expNow:hExp,sav=inc-projExp,savNow=inc-exp,rate=inc>0?sav/inc:null;
+  var cats=(live?byCat(mt):hCats).map(function(r){var av=hAvg[r[0]]||0,pr=live?(day>=5?r[1]/fr:r[1]):r[1];return[r[0],r[1],av,pr]});
   var cr=S.rec.filter(function(r){return r.kind==='credit'&&active(r,c)&&remain(r)!==0}),crm=sum(cr),dti=inc>0?crm/inc:null;
-  var cov=exp>0?total()/exp:null,cats=byCat(all).map(function(r){return[r[0],r[1]/n]}),L=[];
+  var base=Math.max(projExp,hExp),cov=base>0?total()/base:null,L=[];
   function add(l,t){L.push({l:l,t:t})}
-  if(rate===null)add('info','Registra tus ingresos para calcular tu tasa de ahorro.');
-  else if(sav<0)add('bad','Gastas más de lo que ingresas: déficit promedio de '+f(-sav)+' al mes. Empieza recortando tu categoría más grande'+(cats[0]?' ('+cats[0][0]+')':'')+'.');
-  else if(rate<0.1)add('warn','Ahorras '+Math.round(rate*100)+'% de tus ingresos. Una referencia común es 20% (regla 50/30/20); te faltarían unos '+f(inc*0.2-sav)+' al mes.');
-  else if(rate>=0.2)add('ok','Buen ritmo de ahorro: '+Math.round(rate*100)+'% de tus ingresos. Puedes dirigirlo a tu fondo de emergencia o a metas de largo plazo.');
-  else add('info','Ahorras '+Math.round(rate*100)+'% de tus ingresos. Vas bien; subir a 20% te daría más margen.');
+  var cm={day:day,dim:dim,inc:incNow,exp:expNow,proj:projExp,pend:pend,left:incNow-expNow-pend,has:live,incExp:inc,sav:sav,savNow:savNow,perDay:null};
+  if(live){
+    var free=inc-expNow-pend;cm.perDay=free/left;
+    if(inc>0&&expNow>inc)add('bad','Este mes ya gastaste '+f(expNow-inc)+' más de lo que ingresaste ('+f(expNow)+' vs '+f(inc)+'). Detén gastos no esenciales hasta tu próximo ingreso.');
+    else if(inc>0&&free<0)add('bad','Entre lo gastado y tus pagos pendientes, el mes cierra con un faltante de '+f(-free)+'. Necesitas recortar o postergar gastos ya.');
+    else if(inc>0)add('info','Para cerrar el mes en equilibrio puedes gastar hasta '+f(free/left)+' por día durante los '+left+' días que quedan (después de tus '+f(pend)+' pendientes).');
+    if(pend>0&&total()<pend)add('bad','Tienes '+f(pend)+' en pagos pendientes y tu saldo es '+f(total())+'. No alcanza para cubrirlos.');
+  }
+  if(rate===null)add('info','Registra tus ingresos de este mes para calcular tu tasa de ahorro.');
+  else if(sav<0)add('bad',(live?'Al ritmo actual cerrarás el mes con un déficit de ':'Gastas más de lo que ingresas: déficit de ')+f(-sav)+'. Empieza por '+(cats[0]?cats[0][0]:'tu categoría más grande')+'.');
+  else if(rate<0.1)add('warn',(live?'Proyectas ahorrar ':'Ahorras ')+Math.round(rate*100)+'% de tus ingresos este mes. La referencia es 20%; te faltarían unos '+f(Math.max(0,inc*0.2-sav))+'.');
+  else if(rate>=0.2)add('ok',(live?'Vas en camino de ahorrar ':'Ahorras ')+Math.round(rate*100)+'% de tus ingresos este mes. Dirige ese excedente a tu fondo de emergencia o metas.');
+  else add('info',(live?'Proyectas ahorrar ':'Ahorras ')+Math.round(rate*100)+'% de tus ingresos este mes. Subir a 20% te daría más margen.');
   var goal=num(S.prof.goal);
-  if(goal>0){if(sav<goal)add('warn','Tu meta de ahorro es '+f(goal)+' al mes y hoy ahorras '+f(Math.max(0,sav))+'. Brecha: '+f(goal-Math.max(0,sav))+'.');else add('ok','Cumples tu meta de ahorro mensual de '+f(goal)+'.')}
+  if(goal>0){if(sav<goal)add('warn','Tu meta de ahorro es '+f(goal)+' y este mes proyectas '+f(Math.max(0,sav))+'. Brecha: '+f(goal-Math.max(0,sav))+'.');else add('ok','Este mes cumples tu meta de ahorro de '+f(goal)+'.')}
   if(dti!==null&&crm>0){
-    if(dti>0.35)add('bad','Tus créditos suman '+f(crm)+' al mes, el '+Math.round(dti*100)+'% de tus ingresos. Sobre 35% el riesgo es alto: evita nuevas deudas y evalúa pagar antes el de mayor tasa o renegociar.');
+    if(dti>0.35)add('bad','Tus créditos suman '+f(crm)+' este mes, el '+Math.round(dti*100)+'% de tus ingresos. Sobre 35% el riesgo es alto: evita nuevas deudas y evalúa pagar antes el de mayor tasa o renegociar.');
     else if(dti>0.2)add('warn','Tus créditos usan el '+Math.round(dti*100)+'% de tus ingresos. Es manejable, pero conviene no sumar más deuda.');
     else add('ok','Tus créditos usan solo el '+Math.round(dti*100)+'% de tus ingresos.');
   }
   if(cov!==null){
     if(cov<3)add(cov<1?'bad':'warn','Tu saldo cubre '+cov.toFixed(1)+' meses de gastos. Lo recomendable es una reserva de 3 a 6 meses.');
-    else add('ok','Tu saldo cubre '+cov.toFixed(1)+' meses de gastos, dentro de la reserva recomendada de 3 a 6.');
+    else add('ok','Tu saldo cubre '+cov.toFixed(1)+' meses de gastos, dentro de la reserva recomendada.');
   }
-  if(cats.length&&exp>0){var top=cats[0],sh=top[1]/exp;if(sh>0.35)add('warn',top[0]+' concentra el '+Math.round(sh*100)+'% de tus gastos ('+f(top[1])+' al mes). Es la mejor candidata para recortar.')}
-  var ov=S.cats.filter(function(k){var b=S.bud[k]||0;return b>0&&sum(inMonth(c).filter(function(t){return t.type==='out'&&t.cat===k}))>b});
-  if(ov.length)add('warn','Ya superaste el límite de este mes en: '+ov.join(', ')+'.');
+  if(live&&expNow>0){
+    if(hn&&hExp>0){
+      if(projExp>hExp*1.15)add('warn','A este ritmo el gasto del mes cerrará en '+f(projExp)+', un '+Math.round((projExp/hExp-1)*100)+'% sobre tu promedio de '+f(hExp)+'.');
+      else if(day>=5)add('ok','Tu gasto del mes va en línea con tu promedio: proyectado '+f(projExp)+' vs '+f(hExp)+'.');
+    }
+    var top=cats[0];if(top&&top[1]/expNow>0.35)add('warn',top[0]+' concentra el '+Math.round(top[1]/expNow*100)+'% de lo gastado este mes ('+f(top[1])+'). Es la mejor candidata para recortar ahora.');
+    var hi=cats.filter(function(r){return r[2]>0&&r[3]>r[2]*1.2}).slice(0,3).map(function(r){return r[0]+' (proyectado '+f(r[3])+' vs promedio '+f(r[2])+')'});
+    if(hi.length)add('warn','Vas por encima de tu promedio en: '+hi.join('; ')+'.');
+    var pace=S.cats.map(function(k){var b=S.bud[k]||0,u=sum(mt.filter(function(t){return isOut(t)&&t.cat===k}));return{k:k,b:b,u:u}}).filter(function(x){return x.b>0&&x.u<=x.b&&x.u/x.b>fr+0.2&&x.u/x.b>=0.5}).map(function(x){return x.k+' ('+Math.round(x.u/x.b*100)+'% del límite)'});
+    if(pace.length)add('warn','Vas más rápido que el mes (día '+day+' de '+dim+') en: '+pace.join(', ')+'.');
+  }
+  var ov=S.cats.filter(function(k){var b=S.bud[k]||0;return b>0&&sum(mt.filter(function(t){return isOut(t)&&t.cat===k}))>b});
+  if(ov.length)add('bad','Ya superaste el límite de este mes en: '+ov.join(', ')+'.');
   var soon=cr.filter(function(r){return r.end}).sort(function(a,b){return a.end<b.end?-1:1})[0];
   if(soon)add('info','Cuando termine '+soon.name+' ('+label(soon.end)+') liberarás '+f(soon.amount)+' al mes. Planea destinarlo a ahorro o a adelantar otra deuda.');
   var pts=projPts(12),neg=-1;
   for(var i=0;i<pts.length;i++)if(pts[i]<0){neg=i;break}
   if(neg>=0)add('bad','Con tus compromisos actuales tu saldo se vuelve negativo '+(neg?'en '+label(shift(c,neg)):'este mes')+'. Ajusta gastos o ingresos antes de esa fecha.');
   else if(S.rec.length)add('ok','Tu proyección a 12 meses se mantiene en positivo (saldo estimado: '+f(pts[12])+').');
-  var now=new Date(),day=now.getDate(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),fr=day/dim;
-  var mt=inMonth(c),incNow=sum(mt.filter(function(t){return t.type==='in'})),expNow=sum(mt.filter(function(t){return t.type==='out'})),pend=pendTotal();
-  var projExp=expNow>0?(day>=5?expNow/fr:Math.max(expNow,exp)):0;
-  var cm={day:day,dim:dim,inc:incNow,exp:expNow,proj:projExp,pend:pend,left:incNow-expNow-pend,has:mt.length>0};
-  if(cm.has){
-    if(ms.length&&ms.indexOf(c)<0&&exp>0&&expNow>0){
-      if(projExp>exp*1.15)add('warn','A este ritmo cerrarás el mes con gastos de '+f(projExp)+', un '+Math.round((projExp/exp-1)*100)+'% sobre tu promedio ('+f(exp)+').');
-      else if(day>=5)add('ok','Tu gasto del mes va en línea con tu promedio: proyectado '+f(projExp)+' vs '+f(exp)+'.');
-    }
-    var hi=byCat(mt).filter(function(r){var av=0;cats.forEach(function(k){if(k[0]===r[0])av=k[1]});return av>0&&r[1]>av}).map(function(r){return r[0]});
-    if(hi.length&&ms.indexOf(c)<0)add('warn','Este mes ya superaste tu gasto promedio en: '+hi.slice(0,3).join(', ')+'.');
-    var pace=S.cats.filter(function(k){var b=S.bud[k]||0,u=sum(mt.filter(function(t){return t.type==='out'&&t.cat===k}));return b>0&&u<=b&&u/b>fr+0.2&&u/b>=0.5}).map(function(k){return k+' ('+Math.round(sum(mt.filter(function(t){return t.type==='out'&&t.cat===k}))/(S.bud[k])*100)+'%)'});
-    if(pace.length)add('warn','Vas más rápido que el mes (día '+day+' de '+dim+') en: '+pace.join(', ')+'.');
-    if(pend>0&&total()<pend)add('bad','Tienes '+f(pend)+' en pagos pendientes este mes y tu saldo es '+f(total())+'. No alcanza para cubrirlos.');
-    else if(pend>0&&cm.left<0)add('warn','Después de pagar tus '+f(pend)+' pendientes, el mes quedaría en '+f(cm.left)+' (ingresos − gastos − pendientes).');
-    else if(incNow>0)add('info','Este mes llevas '+f(incNow)+' de ingresos y '+f(expNow)+' de gastos'+(pend>0?'; te faltan '+f(pend)+' por pagar':'')+'.');
-  }
   var ord={bad:0,warn:1,info:2,ok:3};L.sort(function(a,b){return ord[a.l]-ord[b.l]});
-  return{empty:false,n:n,inc:inc,exp:exp,sav:sav,rate:rate,crm:crm,dti:dti,cov:cov,cats:cats,L:L,cm:cm};
+  return{empty:false,live:live,n:hn,inc:inc,exp:exp,sav:sav,rate:rate,crm:crm,dti:dti,cov:cov,cats:cats,L:L,cm:cm};
 }
 function vAnal(){
   var a=analyze(fmt),h='<h1>Análisis</h1>';
   if(a.empty)return h+'<div class="card"><div class="empty">Registra movimientos o compromisos recurrentes para ver tu análisis.</div></div>';
   function kpi(l,v,c){return'<div class="card"><div class="mute">'+l+'</div><div class="num '+(c||'')+'">'+v+'</div></div>'}
-  h+='<div class="mute" style="margin-bottom:8px">Línea base: '+(a.n===1?'1 mes':'promedio de '+a.n+' meses')+' de datos. Los movimientos de este mes se evalúan abajo y se actualizan al registrarlos.</div>';
   var m=a.cm;
-  h+='<h2>Este mes (día '+m.day+' de '+m.dim+')</h2><div class="grid3" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'+kpi('Ingresos del mes',fmt(m.inc),'ok')+kpi('Gastos del mes',fmt(m.exp),m.exp>m.inc&&m.inc>0?'bad':'')+kpi('Gasto proyectado a fin de mes',m.exp>0?fmt(m.proj):'-')+kpi('Pagos pendientes',fmt(m.pend),m.pend>0?'warn':'')+'</div>';
-  h+='<div class="grid3" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'+kpi('Ahorro mensual',fmt(a.sav),a.sav<0?'bad':'ok')+kpi('Tasa de ahorro',a.rate===null?'-':Math.round(a.rate*100)+'%')+kpi('Cobertura de reserva',a.cov===null?'-':a.cov.toFixed(1)+' meses')+kpi('Créditos / ingresos',a.dti===null||!a.crm?'-':Math.round(a.dti*100)+'%')+'</div>';
-  h+='<h2>Recomendaciones</h2><div class="card">'+a.L.map(function(x){var col=x.l==='bad'?'var(--bad)':x.l==='ok'?'var(--ok)':x.l==='warn'?'#d69e2e':'var(--mute)';return'<div class="item" style="align-items:flex-start"><span style="color:'+col+';margin-top:1px">●</span><span style="flex:1">'+esc(x.t)+'</span></div>'}).join('')+'</div>';
-  if(a.cats.length&&a.exp>0){h+='<h2>Principales gastos (promedio mensual)</h2><div class="card">'+a.cats.slice(0,5).map(function(r){var sh=r[1]/a.exp;return'<div class="item" style="display:block"><div class="row"><span>'+esc(r[0])+'</span><span class="num">'+fmt(r[1])+' · '+Math.round(sh*100)+'%</span></div><div class="bar"><i style="width:'+Math.round(sh*100)+'%"></i></div></div>'}).join('')+'</div>'}
+  h+='<div class="mute" style="margin-bottom:8px">'+(a.live?'En tiempo real: mes actual, día '+m.day+' de '+m.dim+'. Se recalcula con cada movimiento; el historial'+(a.n?' ('+(a.n===1?'1 mes':a.n+' meses')+')':'')+' solo sirve de comparación.':'Aún no hay movimientos este mes; se usa el promedio de '+a.n+' '+(a.n===1?'mes':'meses')+' anteriores.')+'</div>';
+  if(a.live)h+='<div class="grid3" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'+kpi('Ingresos del mes',fmt(m.inc),'ok')+kpi('Gastos a la fecha',fmt(m.exp),m.inc>0&&m.exp>m.inc?'bad':'')+kpi('Gasto proyectado a fin de mes',m.exp>0?fmt(m.proj):'-')+kpi('Pagos pendientes',fmt(m.pend),m.pend>0?'warn':'')+'</div>';
+  h+='<div class="grid3" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'+kpi(a.live?'Ahorro proyectado del mes':'Ahorro mensual',fmt(a.sav),a.sav<0?'bad':'ok')+kpi('Tasa de ahorro',a.rate===null?'-':Math.round(a.rate*100)+'%')+kpi('Cobertura de reserva',a.cov===null?'-':a.cov.toFixed(1)+' meses')+kpi(a.live&&m.perDay!==null?'Gasto diario disponible':'Créditos / ingresos',a.live&&m.perDay!==null?fmt(Math.max(0,m.perDay)):(a.dti===null||!a.crm?'-':Math.round(a.dti*100)+'%'),a.live&&m.perDay!==null&&m.perDay<0?'bad':'')+'</div>';
+  h+='<h2>Recomendaciones'+(a.live?' del mes':'')+'</h2><div class="card">'+a.L.map(function(x){var col=x.l==='bad'?'var(--bad)':x.l==='ok'?'var(--ok)':x.l==='warn'?'#d69e2e':'var(--mute)';return'<div class="item" style="align-items:flex-start"><span style="color:'+col+';margin-top:1px">●</span><span style="flex:1">'+esc(x.t)+'</span></div>'}).join('')+'</div>';
+  var tot=a.cats.reduce(function(s,r){return s+r[1]},0);
+  if(a.cats.length&&tot>0){h+='<h2>Principales gastos '+(a.live?'del mes':'(promedio mensual)')+'</h2><div class="card">'+a.cats.slice(0,6).map(function(r){var sh=r[1]/tot,t='';if(a.live&&r[2]>0){var d=r[3]/r[2]-1;t=' <span class="mute" style="font-size:12px">'+(d>0.1?'▲ ':d<-0.1?'▼ ':'= ')+'vs prom. '+fmt(r[2])+'</span>'}return'<div class="item" style="display:block"><div class="row"><span>'+esc(r[0])+t+'</span><span class="num">'+fmt(r[1])+' · '+Math.round(sh*100)+'%</span></div><div class="bar"><i style="width:'+Math.round(sh*100)+'%"></i></div></div>'}).join('')+'</div>'}
   if(sampleFn)h+='<h2>Análisis con Claude</h2><div class="card"><div class="mute" style="margin-bottom:8px">Claude revisa tus cifras, sin tus datos de perfil, y te da un diagnóstico.</div><button style="width:100%" onclick="askAI()">Pedir análisis a Claude</button><div id="ai" style="white-space:pre-wrap;margin-top:10px"></div></div>';
   return h+'<div class="mute" style="margin-top:12px">Orientación general basada en tus propios registros; no sustituye asesoría financiera profesional.</div>';
 }
 function askAI(){
   var a=analyze(fmt),b=$('ai');
   if(!sampleFn||!b||a.empty)return;
-  var data={moneda:S.cur,meses_analizados:a.n,ingreso_mensual_promedio:Math.round(a.inc),gasto_mensual_promedio:Math.round(a.exp),ahorro_mensual:Math.round(a.sav),saldo_actual:Math.round(total()),pagos_de_creditos_mensuales:Math.round(a.crm),meta_de_ahorro:num(S.prof.goal),categorias:a.cats.slice(0,8).map(function(x){return{categoria:x[0],gasto_mensual:Math.round(x[1])}}),compromisos:S.rec.map(function(r){return{nombre:r.name,tipo:r.kind||r.type,monto_mensual:r.amount,ultimo_mes:r.end||null}})};
+  var data={moneda:S.cur,base:(a.live?'mes_actual_dia_'+a.cm.day+'_de_'+a.cm.dim:'promedio_historico'),ingreso_mes:Math.round(a.inc),gasto_a_la_fecha:Math.round(a.exp),gasto_proyectado_mes:Math.round(a.cm.proj),pagos_pendientes:Math.round(a.cm.pend),ahorro_proyectado_mes:Math.round(a.sav),saldo_actual:Math.round(total()),pagos_de_creditos_mensuales:Math.round(a.crm),meta_de_ahorro:num(S.prof.goal),categorias:a.cats.slice(0,8).map(function(x){return{categoria:x[0],gasto_mes:Math.round(x[1]),promedio_historico:Math.round(x[2])}}),compromisos:S.rec.map(function(r){return{nombre:r.name,tipo:r.kind||r.type,monto_mensual:r.amount,ultimo_mes:r.end||null}})};
   b.textContent='Analizando...';
   sampleFn('Eres un asesor de finanzas personales. Con estos datos de un usuario escribe en español un diagnóstico breve y 5 recomendaciones concretas y priorizadas, en texto plano sin markdown ni tablas, máximo 220 palabras. Cierra con una línea que aclare que es orientación general. Datos: '+JSON.stringify(data),{onText:function(o){b.textContent=o.text}}).catch(function(e){b.textContent=e&&e.code==='not_granted'?'Permiso denegado. Puedes volver a intentarlo.':'No se pudo obtener el análisis ahora.'});
 }
